@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "defs.h"
 
+#define LRU_LOCKED 1   // 편의 매크로
+
 struct spinlock tickslock;
 uint ticks;
 
@@ -15,6 +17,7 @@ extern char trampoline[], uservec[], userret[];
 void kernelvec();
 
 extern int devintr();
+extern struct { struct spinlock lock; } pte_lock;  // PTE 락 선언
 
 void
 trapinit(void)
@@ -52,28 +55,85 @@ usertrap(void)
   
   if(r_scause() == 8){
     // system call
-
-    if(killed(p))
+    if(p->killed)
       exit(-1);
 
     // sepc points to the ecall instruction,
     // but we want to return to the next instruction.
     p->trapframe->epc += 4;
 
-    // an interrupt will change sepc, scause, and sstatus,
-    // so enable only now that we're done with those registers.
+    // an interrupt will change sstatus &c registers,
+    // so don't enable until done with those registers.
     intr_on();
 
     syscall();
+  } else if(r_scause() == 13 || r_scause() == 15) {
+    // 페이지 폴트 (load or store)
+    uint64 va = r_stval();  // faulting address
+    pte_t *pte = walk(p->pagetable, va, 0);
+    
+    if(pte == 0){
+      // printf("[PAGE FAULT] walk() returned null for va=0x%lx\n", va);
+    } else {
+      // printf("[PAGE FAULT] va=0x%lx pte=0x%lx PTE_P=%d PTE_SWAP=%d\n",
+      //        va, *pte, (*pte & PTE_V) != 0, (*pte & PTE_SWAP) != 0);
+    }    
+
+    if(pte && (*pte & PTE_SWAP)) {
+      // 스왑된 페이지인 경우
+      // printf("[PAGE FAULT] Swapped page at va=0x%lx\n", va);
+      
+      // 1. 새 물리 페이지 할당
+      char *mem = kalloc();
+      if(!mem) {
+        // printf("[PAGE FAULT] Failed to allocate physical page, attempting to evict\n");
+        if(!evictpage()) {
+          // printf("[PAGE FAULT] Failed to evict page\n");
+          p->killed = 1;
+          goto end;
+        }
+        mem = kalloc();
+        if(!mem) {
+          // printf("[PAGE FAULT] Still failed to allocate after eviction\n");
+          p->killed = 1;
+          goto end;
+        }
+      }
+      
+      // 2. 스왑에서 읽어오기
+      int blkno = PTE2PPN(*pte);
+      swapread((uint64)mem, blkno);
+      freeswap(blkno);
+      
+      // 3. PTE 업데이트
+      uint64 flags = PTE_FLAGS(*pte) & (PTE_R|PTE_W|PTE_X|PTE_U);
+      acquire(&pte_lock.lock);
+      *pte = PA2PTE(mem) | (flags & ~PTE_SWAP) | PTE_V;
+      sfence_vma();
+      release(&pte_lock.lock);
+      
+      // 4. LRU 리스트에 추가
+      struct page *pg = &pages[(uint64)mem / PGSIZE];
+      if(!pg->in_lru && !pg->is_page_table && va < MAXVA) {
+        lru_add(pg, p->pagetable, va, LRU_LOCKED);
+      }
+      
+      // printf("[PAGE FAULT] Successfully swapped in page at va=0x%lx\n", va);
+    } else {
+      printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
+      p->killed = 1;
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
-    setkilled(p);
+    p->killed = 1;
   }
 
-  if(killed(p))
+end:
+  if(p->killed)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.

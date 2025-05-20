@@ -1,3 +1,5 @@
+#define NULL ((void*)0)
+
 struct buf;
 struct context;
 struct file;
@@ -8,6 +10,9 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+
+// pa4: page structure는 riscv.h에 정의됨
+extern struct page pages[];  // kalloc.c에 정의된 pages 배열
 
 // bio.c
 void            binit(void);
@@ -64,8 +69,11 @@ void            ramdiskrw(struct buf*);
 
 // kalloc.c
 void*           kalloc(void);
-void            kfree(void *);
+void            kfree(void*);
 void            kinit(void);
+struct page*    get_page(void);
+void            lru_add(struct page*, pagetable_t, uint64, int);
+void            lru_remove(struct page*, int);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -161,6 +169,7 @@ int             uartgetc(void);
 // vm.c
 void            kvminit(void);
 void            kvminithart(void);
+uint64          kvmpa(uint64);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
@@ -169,13 +178,20 @@ uint64          uvmalloc(pagetable_t, uint64, uint64, int);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);
 int             uvmcopy(pagetable_t, pagetable_t, uint64);
 void            uvmfree(pagetable_t, uint64);
-void            uvmunmap(pagetable_t, uint64, uint64, int);
+void            freewalk(pagetable_t);
 void            uvmclear(pagetable_t, uint64);
+void            uvmunmap(pagetable_t, uint64, uint64, int);
 pte_t *         walk(pagetable_t, uint64, int);
 uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             evictpage(void);
+void            print_swap_stats(void);
+// pa4: swap functions
+void            init_swapbitmap(void);
+int             allocswap(void);
+void            freeswap(int);
 
 // plic.c
 void            plicinit(void);

@@ -378,6 +378,11 @@ exit(int status)
   p->xstate = status;
   p->state = ZOMBIE;
 
+  // // 프로그램 종료 시 스왑 통계 출력
+  // printf("\n=== Process %d Exit Statistics ===\n", p->pid);
+  // print_swap_stats();
+  // printf("================================\n\n");
+
   release(&wait_lock);
 
   // Jump into the scheduler, never to return.

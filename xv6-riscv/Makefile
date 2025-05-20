@@ -113,7 +113,7 @@ $U/_forktest: $U/forktest.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $U/usys.o
 	$(OBJDUMP) -S $U/_forktest > $U/forktest.asm
 
-mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
+mkfs/mkfs: mkfs/mkfs.c kernel/fs.h kernel/param.h kernel/types.h
 	gcc -Werror -Wall -I. -o mkfs/mkfs mkfs/mkfs.c
 
 # Prevent deletion of intermediate files, e.g. cat.o, after first build, so
@@ -140,6 +140,8 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_swaptest\
+	$U/_forkmmap\
+	$U/_swapstress
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

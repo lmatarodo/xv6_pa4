@@ -349,12 +349,14 @@ sfence_vma()
 typedef uint64 pte_t;
 typedef uint64 *pagetable_t; // 512 PTEs
 
-// pa4: page struct
+// pa4: page control variables
 struct page{
 	struct page *next;
 	struct page *prev;
 	pagetable_t  pagetable;
 	char *vaddr;
+	int in_lru;  // LRU 리스트에 있는지 여부
+	int is_page_table;  // 1이면 page table 용도임
 };
 
 
@@ -367,16 +369,22 @@ struct page{
 #define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1))
 #define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1))
 
-#define PTE_V (1L << 0) // valid
+#define PTE_V (1L << 0)    // valid
 #define PTE_R (1L << 1)
 #define PTE_W (1L << 2)
 #define PTE_X (1L << 3)
-#define PTE_U (1L << 4) // user can access
+#define PTE_U (1L << 4)    // 1 -> user can access
+#define PTE_A (1L << 6)    // accessed
+#define PTE_D (1L << 7)    // dirty
+#define PTE_SWAP (1L << 8) // 1 -> page is swapped out
 
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
 
 #define PTE2PA(pte) (((pte) >> 10) << 12)
+
+// PTE에서 페이지 번호 추출 (스왑 블록 번호로 사용)
+#define PTE2PPN(pte) ((pte) >> 10)
 
 #define PTE_FLAGS(pte) ((pte) & 0x3FF)
 
@@ -390,4 +398,3 @@ struct page{
 // Sv39, to avoid having to sign-extend virtual addresses
 // that have the high bit set.
 #define MAXVA (1L << (9 + 9 + 9 + 12 - 1))
-
